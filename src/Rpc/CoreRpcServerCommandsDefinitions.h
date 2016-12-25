@@ -1,7 +1,20 @@
-// Copyright (c) 2011-2016 The Cryptonote developers
-// Distributed under the MIT/X11 software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
-// Block explorer related changes Copyright (c) Forknote developers
+// Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
+// Copyright (c) 2016, The Forknote developers
+//
+// This file is part of Bytecoin.
+//
+// Bytecoin is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Bytecoin is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with Bytecoin.  If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 
@@ -295,7 +308,21 @@ struct COMMAND_RPC_STOP_DAEMON {
   typedef STATUS_STRUCT response;
 };
 
-//
+//-----------------------------------------------
+struct COMMAND_RPC_GET_FEE_ADDRESS {
+  typedef EMPTY_STRUCT request;
+
+  struct response {
+    std::string fee_address;
+	std::string status;
+
+    void serialize(ISerializer &s) {
+      KV_MEMBER(fee_address)
+	  KV_MEMBER(status)
+    }
+  };
+};
+
 struct COMMAND_RPC_GETBLOCKCOUNT {
   typedef std::vector<std::string> request;
 
@@ -398,7 +425,6 @@ struct BLOCK_HEADER_RESPONSE {
   }
 };
 
-// block explorer
 
 struct f_transaction_short_response {
   std::string hash;
@@ -496,14 +522,12 @@ struct f_block_details_response {
   }
 };
 
-
-// end of block explorer
-
-
 struct COMMAND_RPC_GET_LAST_BLOCK_HEADER {
   typedef EMPTY_STRUCT request;
   typedef BLOCK_HEADER_RESPONSE response;
 };
+
+
 
 struct COMMAND_RPC_GET_BLOCK_HEADER_BY_HASH {
   struct request {
@@ -528,10 +552,6 @@ struct COMMAND_RPC_GET_BLOCK_HEADER_BY_HEIGHT {
 
   typedef BLOCK_HEADER_RESPONSE response;
 };
-
-
-// block explorer
-
 
 struct F_COMMAND_RPC_GET_BLOCKS_LIST {
   struct request {
@@ -610,11 +630,6 @@ struct F_COMMAND_RPC_GET_POOL {
     }
   };
 };
-   
-
-// end of block explorer
-
-
 
 struct COMMAND_RPC_QUERY_BLOCKS {
   struct request {

@@ -1,6 +1,21 @@
-// Copyright (c) 2011-2016 The Cryptonote developers
-// Distributed under the MIT/X11 software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// Copyright (c) 2012-2016, The CryptoNote developers, The Bytecoin developers
+// Copyright (c) 2014-2016 XDN developers
+// Copyright (c) 2014-2016 The Karbovanets developers
+//
+// This file is part of Bytecoin.
+//
+// Bytecoin is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Bytecoin is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with Bytecoin.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "SimpleWallet.h"
 
@@ -11,7 +26,6 @@
 #include <thread>
 #include <set>
 #include <sstream>
-
 #include <locale>
 
 #include <boost/bind.hpp>
@@ -45,8 +59,6 @@
 #include <crtdbg.h>
 #endif
 
-
-
 using namespace CryptoNote;
 using namespace Logging;
 using Common::JsonValue;
@@ -63,7 +75,7 @@ const command_line::arg_descriptor<std::string> arg_generate_new_wallet = { "gen
 const command_line::arg_descriptor<std::string> arg_daemon_address = { "daemon-address", "Use daemon instance at <host>:<port>", "" };
 const command_line::arg_descriptor<std::string> arg_daemon_host = { "daemon-host", "Use daemon instance at host <arg> instead of localhost", "" };
 const command_line::arg_descriptor<std::string> arg_password = { "password", "Wallet password", "", true };
-const command_line::arg_descriptor<uint16_t> arg_daemon_port = { "daemon-port", "Use daemon instance at port <arg> instead of 8081", 0 };
+const command_line::arg_descriptor<uint16_t> arg_daemon_port = { "daemon-port", "Use daemon instance at port <arg> instead of 32348", 0 };
 const command_line::arg_descriptor<uint32_t> arg_log_level = { "set_log", "", INFO, true };
 const command_line::arg_descriptor<bool> arg_testnet = { "testnet", "Used to deploy test nets. The daemon must be launched with --testnet flag", false };
 const command_line::arg_descriptor< std::vector<std::string> > arg_command = { "command", "" };
@@ -201,12 +213,10 @@ struct TransferCommand {
           auto value = ar.next();
           bool ok = m_currency.parseAmount(value, de.amount);
           if (!ok || 0 == de.amount) {
-
 #if defined(WIN32)
 #undef max
 #undef min
-#endif
-
+#endif 
             logger(ERROR, BRIGHT_RED) << "amount is wrong: " << arg << ' ' << value <<
               ", expected number from 0 to " << m_currency.formatAmount(std::numeric_limits<uint64_t>::max());
             return false;
@@ -215,6 +225,13 @@ struct TransferCommand {
           destination.amount = de.amount;
 
           dsts.push_back(destination);
+		  
+		  if (!remote_fee_address.empty()) {
+			destination.address = remote_fee_address;
+			destination.amount = de.amount * 0.25 / 100;
+			dsts.push_back(destination);
+		  }
+		  
         }
       }
 
@@ -240,7 +257,7 @@ JsonValue buildLoggerConfiguration(Level level, const std::string& logfile) {
   JsonValue& consoleLogger = cfgLoggers.pushBack(JsonValue::OBJECT);
   consoleLogger.insert("type", "console");
   consoleLogger.insert("level", static_cast<int64_t>(TRACE));
-  consoleLogger.insert("pattern", "");
+  consoleLogger.insert("pattern", "%D %T %L ");
 
   JsonValue& fileLogger = cfgLoggers.pushBack(JsonValue::OBJECT);
   fileLogger.insert("type", "file");
@@ -433,6 +450,26 @@ bool writeAddressFile(const std::string& addressFilename, const std::string& add
   return true;
 }
 
+bool processServerFeeAddressResponse(const std::string& response, std::string& fee_address) {
+	try {
+		std::stringstream stream(response);
+		JsonValue json;
+		stream >> json;
+
+		auto rootIt = json.getObject().find("fee_address");
+		if (rootIt == json.getObject().end()) {
+			return false;
+		}
+
+		fee_address = rootIt->second.getString();
+	}
+	catch (std::exception&) {
+		return false;
+	}
+
+	return true;
+}
+
 }
 
 std::string simple_wallet::get_commands_str() {
@@ -572,7 +609,11 @@ bool simple_wallet::init(const boost::program_options::variables_map& vm) {
       fail_msg_writer() << "failed to parse daemon address: " << m_daemon_address;
       return false;
     }
+	remote_fee_address = getFeeAddress();
   } else {
+   if (!m_daemon_host.empty()) {
+	  remote_fee_address = getFeeAddress();
+    }
     m_daemon_address = std::string("http://") + m_daemon_host + ":" + std::to_string(m_daemon_port);
   }
 
@@ -982,6 +1023,28 @@ bool simple_wallet::show_blockchain_height(const std::vector<std::string>& args)
   return true;
 }
 //----------------------------------------------------------------------------------------------------
+std::string simple_wallet::getFeeAddress() {
+  
+  HttpClient httpClient(m_dispatcher, m_daemon_host, m_daemon_port);
+
+  HttpRequest req;
+  HttpResponse res;
+
+  req.setUrl("/feeaddress");
+  httpClient.request(req, res);
+
+  if (res.getStatus() != HttpResponse::STATUS_200) {
+    throw std::runtime_error("Remote server returned code " + std::to_string(res.getStatus()));
+  }
+
+  std::string address;
+  if (!processServerFeeAddressResponse(res.getBody(), address)) {
+    throw std::runtime_error("Failed to parse server response");
+  }
+
+  return address;
+}
+//----------------------------------------------------------------------------------------------------
 bool simple_wallet::transfer(const std::vector<std::string> &args) {
   try {
     TransferCommand cmd(m_currency);
@@ -1065,12 +1128,11 @@ void simple_wallet::printConnectionError() const {
 
 int main(int argc, char* argv[]) {
 #ifdef WIN32
-	setlocale(LC_ALL, "");
-    SetConsoleCP(1251);
-    SetConsoleOutputCP(1251);
+   setlocale(LC_ALL, "");
+   SetConsoleCP(1251);
+   SetConsoleOutputCP(1251);
   _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
-
 
   po::options_description desc_general("General options");
   command_line::add_arg(desc_general, command_line::arg_help);
